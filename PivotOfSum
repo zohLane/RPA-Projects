@@ -1,0 +1,188 @@
+using System;
+using System.Activities;
+using System.ComponentModel;
+using Excel = Microsoft.Office.Interop.Excel;
+
+namespace ClassCreateCalculatedPivot
+{
+    public class PivotOfSum : CodeActivity
+    {
+        [Category("Input")]
+        [RequiredArgument]
+        public InArgument<string> FileName { get; set; }
+
+        [Category("Input")]
+        [RequiredArgument]
+        public InArgument<string> SourceSheet { get; set; }
+
+        [Category("Input")]
+        [RequiredArgument]
+        public InArgument<string> SourceRange { get; set; }
+
+        [Category("Input")]
+        [RequiredArgument]
+        public InArgument<string> TargetSheet { get; set; }
+
+        [Category("Input")]
+        [RequiredArgument]
+        public InArgument<int> TargetRowIndex { get; set; }
+
+        [Category("Input")]
+        [RequiredArgument]
+        public InArgument<int> TargetColumnIndex { get; set; }
+
+        [Category("Pivot")]
+        [RequiredArgument]
+        public InArgument<string> PivotRowField { get; set; }
+
+        [Category("Pivot")]
+        [RequiredArgument]
+        public InArgument<string> PivotValueField { get; set; }
+
+        [Category("Pivot")]
+        public InArgument<string> PivotTableName { get; set; }
+
+
+        [Category("Result")]
+        public OutArgument<bool> Successful { get; set; }
+
+        [Category("Result")]
+        public OutArgument<System.Exception> Exception { get; set; }
+
+        protected override void Execute(CodeActivityContext context)
+        {
+            var filename = FileName.Get(context);
+            var sourceSheet = SourceSheet.Get(context);
+            var sourceRange = SourceRange.Get(context);
+
+            var targetSheet = TargetSheet.Get(context);
+            var targetRowIndex = TargetRowIndex.Get(context);
+            var targetColumnIndex = TargetColumnIndex.Get(context);
+
+            var pivotRowField = PivotRowField.Get(context);
+            var pivotValueField = PivotValueField.Get(context);
+            var pivotTableName = PivotTableName.Get(context);
+
+            var successful = false;
+
+            Excel.Application excel;
+            Excel.Workbook wb;
+            Excel.Worksheet ws;
+            Excel.Worksheet p_ws;
+            Excel.Range rng;                //Capturing the range of source sheet
+            Excel.Range p_rng;              //Capturing the range of pivot table
+
+            try
+            {
+                excel = new Excel.Application();
+                wb = excel.Workbooks.Open(filename);
+
+                try
+                {
+                    excel.Visible = false;
+
+                    // select source sheet and activate
+                    ws = wb.Sheets[sourceSheet] as Excel.Worksheet;
+
+                    ws.Activate();
+
+                    // Selects the given range of sheet
+                    rng = ws.Range[sourceRange];
+
+                    var sheetFound = false;
+                    foreach (Excel.Worksheet sheet in wb.Sheets)
+                    {
+                        if (sheet.Name == targetSheet)
+                        {
+                            sheetFound = true;
+                            break;
+                        }
+                    }
+
+                    if (sheetFound)
+                    {
+                        // select a sheet and activate
+                        p_ws = wb.Sheets[targetSheet] as Excel.Worksheet;
+                        p_ws.Activate();
+                    }
+                    else
+                    {
+                        //'create an empty and and name the sheet as target sheet'
+                        p_ws = wb.Sheets.Add() as Excel.Worksheet;
+                        p_ws.Name = targetSheet;
+                    }
+
+                    if (targetRowIndex == 0)
+                    {
+                        targetRowIndex = 1;
+                    }
+                    if (targetColumnIndex == 0)
+                    {
+                        targetColumnIndex = 1;
+                    }
+                    //Specify the first cell for the pivot table
+                    p_rng = p_ws.Cells[targetRowIndex, targetColumnIndex] as Excel.Range;
+
+                    // Creation pivot Cache and pivot table
+                    Excel.PivotCache oPivotCache = null;
+                    Excel.PivotTables oPivotTables = null;
+                    Excel.PivotTable oPivotTable = null;
+
+                    oPivotCache = wb.PivotCaches().Add(Excel.XlPivotTableSourceType.xlDatabase, rng) as Excel.PivotCache;
+                    oPivotTables = p_ws.PivotTables(Type.Missing) as Excel.PivotTables;
+
+                    if (String.IsNullOrEmpty(pivotTableName))
+                    {
+                        pivotTableName = "Pivot Table 1";
+                    }
+
+                    // 'Parameters are cache, range the table should start, table name'
+                    oPivotTable = oPivotTables.Add(oPivotCache, p_rng, pivotTableName, Type.Missing, Type.Missing);
+
+                    //'Creation of pivot Fields'
+                    Excel.PivotField oPivotField = null;
+
+                    //'Specfiy the row field'
+                    oPivotField = oPivotTable.PivotFields(pivotRowField) as Excel.PivotField;
+                    oPivotField.Orientation = Excel.XlPivotFieldOrientation.xlRowField;
+                    oPivotField.Subtotals[1] = false;
+                    //oPivotField.PivotItems();
+
+                    // 'Specfiy the value field'
+                    oPivotField = oPivotTable.PivotFields(pivotValueField) as Excel.PivotField;
+                    oPivotField.Orientation = Excel.XlPivotFieldOrientation.xlDataField;
+                    oPivotField.Function = Excel.XlConsolidationFunction.xlSum;
+                    oPivotField.Name = "Sum of " + pivotValueField;
+
+                    wb.Save();
+                    wb.Close();
+                    excel.Quit();
+
+                    successful = true;
+                    Exception.Set(context, null);
+                }
+                catch (Exception es)
+                {
+                    wb.Save();
+                    wb.Close();
+                    excel.Quit();
+
+                    successful = false;
+                    throw es;
+                }
+            }
+            catch (Exception es)
+            {
+
+                successful = false;
+                Exception.Set(context, es);
+            }
+            finally
+            {
+                Successful.Set(context, successful);
+            }
+
+            
+        }
+    }
+}
